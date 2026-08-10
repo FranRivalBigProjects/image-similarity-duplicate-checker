@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Similarity / Duplicate Checker</title>
+<meta name="description" content='Compare two images and get a similarity score to check if they are duplicates or near-duplicates.'>
+<meta name="google-site-verification" content="REPLACE_ME">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+    :root{
+      --bg:#0d0f11;--panel:#15181b;--line:#262b30;--text:#d8dee3;
+      --muted:#7c8791;--accent:#5ec9a6;--accent2:#e8b34f;
+    }
+    *{box-sizing:border-box;}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Mono',monospace;line-height:1.5;padding:32px 16px 64px;}
+    .wrap{max-width:640px;margin:0 auto;}
+    h1{font-size:20px;margin:0 0 6px;color:#fff;font-weight:600;}
+    .desc{color:var(--muted);font-size:13px;margin:0 0 24px;}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px;margin-bottom:20px;}
+    label{display:block;font-size:12px;color:var(--muted);margin:14px 0 6px;}
+    label:first-child{margin-top:0;}
+    input, select{width:100%;background:#0a0c0e;border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:4px;font-family:inherit;font-size:14px;}
+    input[type=file]{padding:8px;}
+    input[type=color]{padding:2px;height:38px;}
+    input:focus, select:focus{outline:1px solid var(--accent);}
+    button{margin-top:18px;width:100%;background:var(--accent);color:#08110d;border:none;padding:11px;border-radius:4px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;}
+    button:hover{opacity:0.9;}
+    .result{margin-top:18px;padding:14px;border:1px dashed var(--line);border-radius:4px;font-size:14px;min-height:20px;}
+    .result .big{font-size:22px;color:var(--accent2);font-weight:600;display:block;margin-bottom:4px;}
+    table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+    th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;}
+    th{color:var(--muted);font-weight:600;}
+    .note{color:var(--muted);font-size:12px;margin-top:20px;}
+    a{color:var(--accent);}
+    .swatch{width:26px;height:26px;border-radius:4px;display:inline-block;vertical-align:middle;margin-right:8px;border:1px solid var(--line);}
+    canvas{max-width:100%;border-radius:4px;border:1px solid var(--line);background:#000;}
+    .two-col{display:flex;gap:12px;flex-wrap:wrap;}
+    .two-col > div{flex:1;min-width:140px;}
+    .row{display:flex;align-items:center;padding:4px 0;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Image Similarity / Duplicate Checker</h1>
+  <p class="desc">Upload two images to compare how visually similar they are.</p>
+  <div class="panel">
+    
+    <label for="file">First image</label>
+    <input type="file" id="file" accept="image/*">
+    <label for="file2">Second image</label>
+    <input type="file" id="file2" accept="image/*">
+  
+    <button onclick="calc()">Compare images</button>
+    <div class="result" id="result"></div>
+  </div>
+  <p class="note">Processed locally in your browser. Nothing is uploaded to a server.</p>
+</div>
+<script>
+
+function loadImage(fileInputId, onReady){
+  var input = document.getElementById(fileInputId);
+  var file = input.files[0];
+  if (!file) { return null; }
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var img = new Image();
+    img.onload = function(){ onReady(img, file, e.target.result); };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  return file;
+}
+function toCanvas(img, maxDim){
+  var w = img.width, h = img.height;
+  if (maxDim && Math.max(w,h) > maxDim) {
+    var scale = maxDim / Math.max(w,h);
+    w = Math.round(w*scale); h = Math.round(h*scale);
+  }
+  var c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  var ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  return c;
+}
+
+function dHash(img){
+  var c = document.createElement('canvas');
+  c.width = 9; c.height = 8;
+  var ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, 9, 8);
+  var data = ctx.getImageData(0,0,9,8).data;
+  var gray = [];
+  var i;
+  for (i = 0; i < data.length; i += 4) {
+    gray.push(0.299*data[i] + 0.587*data[i+1] + 0.114*data[i+2]);
+  }
+  var bits = '';
+  var row, col, idx;
+  for (row = 0; row < 8; row++) {
+    for (col = 0; col < 8; col++) {
+      idx = row*9 + col;
+      bits += (gray[idx] < gray[idx+1]) ? '1' : '0';
+    }
+  }
+  var hex = '';
+  for (i = 0; i < 64; i += 4) {
+    hex += parseInt(bits.substr(i,4), 2).toString(16);
+  }
+  return hex;
+}
+function hammingHex(a, b){
+  var dist = 0;
+  var i, va, vb, x;
+  for (i = 0; i < a.length; i++) {
+    va = parseInt(a[i], 16);
+    vb = parseInt(b[i], 16);
+    x = va ^ vb;
+    while (x) { dist += x & 1; x = x >> 1; }
+  }
+  return dist;
+}
+
+function calc(){
+  var f1 = document.getElementById('file').files[0];
+  var f2 = document.getElementById('file2').files[0];
+  var result = document.getElementById('result');
+  if (!f1 || !f2) { result.innerHTML = 'Choose two images to compare.'; return; }
+  var img1 = new Image(), img2 = new Image();
+  var loaded = 0;
+  function done(){
+    loaded++;
+    if (loaded < 2) return;
+    var h1 = dHash(img1), h2 = dHash(img2);
+    var dist = hammingHex(h1, h2);
+    var similarity = ((64-dist)/64)*100;
+    result.innerHTML = '<span class="big">' + similarity.toFixed(1) + '% similar</span>' +
+      'Hamming distance: ' + dist + ' / 64 bits' +
+      (similarity > 90 ? '<br>Likely duplicates' : '');
+  }
+  var r1 = new FileReader();
+  r1.onload = function(e){ img1.onload = done; img1.src = e.target.result; };
+  r1.readAsDataURL(f1);
+  var r2 = new FileReader();
+  r2.onload = function(e){ img2.onload = done; img2.src = e.target.result; };
+  r2.readAsDataURL(f2);
+}
+
+</script>
+</body>
+</html>
